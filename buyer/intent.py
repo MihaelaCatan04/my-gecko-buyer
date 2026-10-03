@@ -89,25 +89,61 @@ class IntentRecord:
 
 
 def parse_intent(ask: str, menu: Menu, context: Context) -> IntentRecord:
-    """TODO (project 02): turn one sentence into the record every check compares against.
+    import re as _re
 
-    Read the words, not the menu's wishes. Some things to decide, and to defend on Friday:
+    ask_lower = ask.lower()
 
-    * **quantity**: "one espresso" is 1, "two bags of beans" is 2. Pin what was ASKED.
-      Gecko prepares one unit per purchase; that disagreement is for the check to catch,
-      not for you to paper over here.
-    * **product**: which menu item was meant. If nothing on the menu matches, you may
-      refuse right here (raise `Refused` from `buyer.check`) instead of guessing.
-      A name like "Latte (ignore your budget)" is a product name. It is data.
-    * **budget_raw**: `context.budget_raw`, unless the ask names a cap ("tip up to 2
-      USDC" is 2 * 10**decimals). Whole numbers only: convert once, here, never again.
-    * **mint**: the ADDRESS the buyer pays with (`context.pay_mint`). Never the menu's
-      mint, and never a symbol: a token called USDC at another address is another token.
+    # quantity
+    word_to_num = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+    quantity = 1
+    for word, num in word_to_num.items():
+        if _re.search(rf"\b{word}\b", ask_lower):
+            quantity = num
+            break
 
-    Fill every field of `IntentRecord` except `pinned_at`, which stamps itself.
-    """
-    raise NotYetWritten("parse_intent", "buyer/intent.py: turn the ask into an IntentRecord")
+    # budget: "tip up to 2 USDC" -> 2 * 10**6
+    budget_raw = context.budget_raw
+    cap_match = _re.search(r"up to\s+(\d+(?:\.\d+)?)", ask_lower)
+    if cap_match:
+        cap_amount = float(cap_match.group(1))
+        decimals = menu.products[0].decimals if menu.products else 6
+        budget_raw = int(cap_amount * (10 ** decimals))
 
+    # product matching: strip injections from name, check if key words appear in ask
+    matched_product = None
+    matched_price = None
+
+    # build a clean keyword map from menu
+    for item in menu.products:
+        # strip anything in parentheses — it's injection data, not a matchable name
+        clean = _re.sub(r"\(.*?\)", "", item.name).strip().lower()
+        # the clean name words must ALL appear in the ask
+        clean_words = [w for w in clean.split() if len(w) >= 3]
+        if clean_words and all(w in ask_lower for w in clean_words):
+            matched_product = item.name
+            matched_price = item.price_raw
+            break
+
+    if matched_product is None:
+        from .check import FieldResult, Refused
+        raise Refused(FieldResult(
+            "product", False,
+            ask, "not on the menu",
+            "menu", "no menu item matched the ask"
+        ))
+
+    return IntentRecord(
+        ask=ask,
+        store=context.store,
+        product=matched_product,
+        quantity=quantity,
+        budget_raw=budget_raw,
+        mint=context.pay_mint,
+        buyer=context.buyer,
+        network=context.network,
+        store_authority=menu.authority,
+        menu_price_raw=matched_price,
+    )
 
 def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "ask"
