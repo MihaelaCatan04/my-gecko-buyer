@@ -104,7 +104,7 @@ def verify(run: Run) -> None:
 
 def submit(run: Run) -> None:
     run.submitted = run.gecko.call("submit_transaction", {
-        "signed_transaction": run.signed,
+        "transaction": run.signed,
         "binding": run.prepared.binding,
         "last_valid_block_height": run.prepared.last_valid_block_height,
         "rpc_url": run.chain.rpc_url,
